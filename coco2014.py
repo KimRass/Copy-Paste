@@ -115,20 +115,21 @@ class LargeScaleJittering(DualTransform):
             ]
         )
 
-    def apply(self, img, **params):
-        augmented = self.transform(image=img, **params)
-        return augmented['image']
+    # def apply(self, img, **params):
+    #     augmented = self.transform(image=img, **params)
+    #     return augmented['image']
+    def apply(self, img, mask=None, **params):
+        if mask is not None:
+            return self.transforms(image=img, mask=mask, **params)
+        else:
+            return self.transforms(image=img, **params)
 
-    def apply_to_mask(self, mask, **params):
-        augmented = self.transform(image=mask, **params)
-        return augmented['image']
+    # def apply_to_mask(self, mask, **params):
+    #     augmented = self.transform(image=mask, **params)
+    #     return augmented['image']
 
     def get_params_dependent_on_targets(self, params):
         return {}
-
-    @property
-    def targets_as_params(self):
-        return ['image', 'mask']
 
 
 # "We randomly select two images and apply random scale jittering and random horizontal flipping on each of them. Then we select a random subset of objects from one of the images and paste them onto the other image."
@@ -212,21 +213,19 @@ if __name__ == "__main__":
                 A.HorizontalFlip(p=0.5),
             ])
 
-        def apply(self, img, **params):
-            return self.transforms(image=img, **params)
-
-        def apply_to_mask(self, mask, **params):
-            return self.transforms(image=mask, **params)
+        def apply(self, img, mask=None, **params):
+            if mask is not None:
+                return self.transforms(image=img, mask=mask, **params)
+            else:
+                return self.transforms(image=img, **params)
 
         def get_transform_init_args_names(self):
             return ('img_size', 'pad_color')
-        @property
-        def targets_as_params(self):
-            return []
         
-    tt = CustomTransform()
+    img_size = 512
+    tt = CustomTransform(img_size = 512)
     img1 = to_array(image1)
-    new_mask = np.zeros((h, w, 3), dtype=np.uint8)
-    # out = tt(image=img1, mask=new_mask)
+    new_mask = np.zeros((img_size, img_size, 3), dtype=np.uint8)
+    out = tt(image=img1, mask=new_mask)
     out = tt(image=img1)
     # out.keys()
