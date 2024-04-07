@@ -9,6 +9,7 @@ from torchvision import datasets
 import albumentations as A
 from albumentations.core.transforms_interface import DualTransform
 import random
+from torch.utils.data import DataLoader
 
 
 def to_pil(img):
@@ -163,12 +164,14 @@ if __name__ == "__main__":
         root=imgs_dir,
         annFile=instances_path,
         # transforms=lambda image, target: transform(image=to_array(image), target=target),
-        transform=transform,
-        target_transform=transform,
+        transform=lambda x: transform(image=np.array(x))["image"],
+        # target_transform=transform,
     )
-    di = iter(ds)
-
-    image1, label1 = next(di)
+    dl = DataLoader(ds, batch_size=4, collate_fn=collate_fn)
+    di = iter(dl)
+    image, target = next(di)
+    image.shape
+    target
     image1
     label1
     

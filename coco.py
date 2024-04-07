@@ -14,8 +14,6 @@ import torchvision.transforms as T
 from coco2014 import to_array, to_pil
 
 
-
-
 annot_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
 img_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
 with open(annot_path, mode="r") as f:
@@ -25,9 +23,9 @@ transformer = T.Compose(
     [T.CenterCrop((224)), T.ToTensor(), T.Normalize(mean=0.5, std=0.5)],
 )
 ds = CocoDetection(img_dir, annot_path, transform=transformer)
-dl = DataLoader(ds, batch_size=4, collate_fn=lambda batch: list(zip(*batch)))
+dl = DataLoader(ds, batch_size=4)
 image, target = next(iter(dl))
-type(target)
+type(target[0])
 len(target)
 [{k: v for k, v in t.items()} for t in target[0]]
 target[0]
