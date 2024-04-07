@@ -5,6 +5,7 @@ import random
 from PIL import Image
 import torchvision.transforms as T
 from torchvision.transforms import v2
+from torchvision import datasets
 import albumentations as A
 from albumentations.core.transforms_interface import DualTransform
 import random
@@ -73,8 +74,8 @@ def put_cls_name(img, cls_name, poly, color):
     )
 
 
-def vis_label(image, label, palette, beta=0.8):
-    img = to_array(image)
+def vis_label(img, label, palette, beta=0.8):
+    # img = to_array(image)
     for obj_idx, obj in enumerate(label):
         polys = obj["segmentation"]
         cls_idx = obj["category_id"]
@@ -90,142 +91,108 @@ def vis_label(image, label, palette, beta=0.8):
     to_pil(img).show()
 
 
-class LargeScaleJittering(DualTransform):
-    def __init__(self, img_size, pad_color=(127, 127, 127), always_apply=False, p=1.0):
-        super().__init__(always_apply=always_apply, p=p)
+def select_objects_randomly(label, select_prob=0.3):
+    new_label = list()
+    for obj in label:
+        if random.random() > select_prob:
+            new_label.append(obj)
+    return new_label
 
-        self.transform = A.Compose(
-            [
-                A.ShiftScaleRotate(
-                    shift_limit=(-0.5, 0.5),
-                    scale_limit=(-0.9, 1),
-                    rotate_limit=0,
-                    border_mode=cv2.BORDER_CONSTANT,
-                    value=pad_color,
-                    p=1,
-                ),
-                A.PadIfNeeded(
-                    min_height=img_size,
-                    min_width=img_size,
-                    border_mode=cv2.BORDER_CONSTANT,
-                    value=pad_color,
-                ),
-                A.CenterCrop(height=img_size, width=img_size),
-                A.HorizontalFlip(p=0.5),
-            ]
-        )
 
-    # def apply(self, img, **params):
-    #     augmented = self.transform(image=img, **params)
-    #     return augmented['image']
-    def apply(self, img, mask=None, **params):
-        if mask is not None:
-            return self.transforms(image=img, mask=mask, **params)
-        else:
-            return self.transforms(image=img, **params)
+def get_randomly_selected_obj_mask(img, label, select_prob=0.3):
+    h, w = img.shape[:2]
+    merged_mask = np.zeros((h, w), dtype=np.uint8)
+    new_label = select_objects_randomly(label, select_prob=select_prob)
+    for obj in new_label:
+        polys = obj["segmentation"]
+        mask = get_mask(h=h, w=w, polys=polys)
+        merged_mask = np.maximum(merged_mask, mask)
+    return new_label, np.stack([merged_mask] * 3, axis=-1)
 
-    # def apply_to_mask(self, mask, **params):
-    #     augmented = self.transform(image=mask, **params)
-    #     return augmented['image']
 
-    def get_params_dependent_on_targets(self, params):
-        return {}
+def merge_two_imgs(img1, img2, mask, transform):
+    transformed_img1 = transform(image=img1)["image"]
+    transformed = transform(image=img2, mask=mask)
+    transformed_img2 = transformed["image"]
+    transformed_mask = transformed["mask"]
+    vis_label(transformed_img2)
+    # to_pil(transformed_mask).show()
+    return np.where(transformed_mask == 255, transformed_img2, transformed_img1)
+
+
+def copy_paste(img1, img2, label1, label2, transform, select_prob):
+    select_prob = 0.3
+    new_label2, mask = get_randomly_selected_obj_mask(img2, label=label2, select_prob=select_prob)
+    merged_img = merge_two_imgs(img1=img1, img2=img2, mask=mask, transform=transform)
+    return merged_img
 
 
 # "We randomly select two images and apply random scale jittering and random horizontal flipping on each of them. Then we select a random subset of objects from one of the images and paste them onto the other image."
 # "we remove fully occluded objects and update the masks and bounding boxes of partially occluded objects."
 # "For composing new objects into an image, we compute the binary mask (α) of pasted objects using ground-truth annotations and compute the new image as I1 × α + I2 × (1 − α) where I1 is the pasted image and I2 is the main image. To smooth out the edges of the pasted objects we apply a Gaussian filter to α similar to “blending” in [13]. But unlike [13], we also found that simply compos- ing without any blending has similar performance."
 if __name__ == "__main__":
-    data_dir = "/home/jbkim/Documents/datasets/val2014"
-    instances_file = "/home/jbkim/Documents/datasets/annotations_trainval2014/annotations/instances_val2014.json"
-
-    # 데이터셋 로드
-    ds = CocoDetection(root=data_dir, annFile=instances_file)
-    di = iter(ds)
+    imgs_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
+    instances_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
     N_CLASSES = 80
     palette = get_palette(N_CLASSES)
 
-
-
-    image, label = next(di)
-    # new_image = vis_label(image, label=label, palette=palette)
-
     img_size = 512
-    transform = LargeScaleJittering(img_size=img_size)
+    pad_color=(127, 127, 127)
+    transform = A.Compose(
+        [
+            A.ShiftScaleRotate(
+                shift_limit=(-0.5, 0.5),
+                scale_limit=(-0.9, 1),
+                rotate_limit=0,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=pad_color,
+                p=1,
+            ),
+            A.PadIfNeeded(
+                min_height=img_size,
+                min_width=img_size,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=pad_color,
+            ),
+            A.CenterCrop(height=img_size, width=img_size),
+            A.HorizontalFlip(p=0.5),
+        ]
+    )
+    # ds = CocoDetection(root=imgs_dir, annFile=instances_path, transform=transform)
+    ds = CocoDetection(
+        root=imgs_dir,
+        annFile=instances_path,
+        # transforms=lambda image, target: transform(image=to_array(image), target=target),
+        transform=transform,
+        target_transform=transform,
+    )
+    di = iter(ds)
 
     image1, label1 = next(di)
-
-    # image1.show()
-    img1 = to_array(image1)
-    img1 = transform(image=img1)["image"]
-    img1.shape
-
-    image2, label2 = next(di)
+    image1
+    label1
     
-    img2 = to_array(image2)
-    prob = 0.3
-    h, w = img2.shape[:2]
-    new_mask = np.zeros((h, w, 3), dtype=np.uint8)
-    for obj_idx, obj in enumerate(label2):
-        if random.random() > prob:
-            continue
-        polys = obj["segmentation"]
-        cls_idx = obj["category_id"]
-        mask = get_mask(h=h, w=w, polys=polys)
-        mask = np.stack([mask] * 3, axis=-1)
-
-        new_mask = np.maximum(new_mask, mask)
-
-    transformed2 = transform(image=img2, mask=new_mask)
-    img2 = transformed2["image"]
-    new_mask = transformed2["mask"]
-    # to_pil(img2).show()
-
-    new_img = np.where(new_mask == 255, img2, img1)
-    to_pil(new_img).show()
-    to_pil(new_mask).show()
-    # to_pil(img1).show()
-
-
-
-
-
-    class CustomTransform(A.DualTransform):
-        def __init__(self, img_size, pad_color=(0, 0, 0), always_apply=False, p=1.0):
-            super().__init__(always_apply=always_apply, p=p)
-            
-            self.transforms = A.Compose([
-                A.ShiftScaleRotate(
-                    shift_limit=(-0.5, 0.5),
-                    scale_limit=(-0.9, 1),
-                    rotate_limit=0,
-                    border_mode=cv2.BORDER_CONSTANT,
-                    value=pad_color,
-                    p=1,
-                ),
-                A.PadIfNeeded(
-                    min_height=img_size,
-                    min_width=img_size,
-                    border_mode=cv2.BORDER_CONSTANT,
-                    value=pad_color,
-                ),
-                A.CenterCrop(height=img_size, width=img_size),
-                A.HorizontalFlip(p=0.5),
-            ])
-
-        def apply(self, img, mask=None, **params):
-            if mask is not None:
-                return self.transforms(image=img, mask=mask, **params)
-            else:
-                return self.transforms(image=img, **params)
-
-        def get_transform_init_args_names(self):
-            return ('img_size', 'pad_color')
-        
-    img_size = 512
-    tt = CustomTransform(img_size = 512)
+    image2, label2 = next(di)
     img1 = to_array(image1)
-    new_mask = np.zeros((img_size, img_size, 3), dtype=np.uint8)
-    out = tt(image=img1, mask=new_mask)
-    out = tt(image=img1)
-    # out.keys()
+    img2 = to_array(image2)
+    vis_label(img2, label2, palette=palette)
+    # label1
+
+    SELECT_PROB = 0.6
+    img = copy_paste(
+        img1=img1,
+        img2=img2,
+        label1=label1,
+        label2=label2,
+        transform=transform,
+        select_prob=SELECT_PROB,
+    )
+    to_pil(img).show()
+
+
+# import torchvision
+# import ssl
+# ssl._create_default_https_context = ssl._create_unverified_context
+
+# model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
+# model.eval()
