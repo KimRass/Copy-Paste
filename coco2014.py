@@ -22,13 +22,6 @@ def to_array(image):
     return np.array(image)
 
 
-def get_palette(n_classes):
-    rand_perm1 = np.random.permutation(256)[: n_classes]
-    rand_perm2 = np.random.permutation(256)[: n_classes]
-    rand_perm3 = np.random.permutation(256)[: n_classes]
-    return np.stack([rand_perm1, rand_perm2, rand_perm3], axis=1)
-
-
 def get_color(obj_idx, cls_idx, palette, task):
     if task == "instance":
         return palette[obj_idx]
@@ -43,13 +36,6 @@ def get_mask(h, w, polys):
         poly = np.array(poly).reshape((-1, 2)).astype(np.int32)
         cv2.fillPoly(mask, pts=[poly], color=255)
     return mask
-
-
-def colorize_mask(mask, color):
-    colored_mask = np.stack([mask] * 3, axis=-1)
-    for i in range(3):
-        colored_mask[..., i][colored_mask[..., i] == 255] = color[i]
-    return colored_mask
 
 
 def overlay_mask(img, colored_mask, beta):
