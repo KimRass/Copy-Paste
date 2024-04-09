@@ -2,7 +2,8 @@
     # https://www.kaggle.com/code/blondinka/how-to-do-augmentations-for-instance-segmentation
 
 import sys
-sys.path.insert(0, "/Users/jongbeomkim/Desktop/workspace/Copy-Paste/")
+# sys.path.insert(0, "/Users/jongbeomkim/Desktop/workspace/Copy-Paste/")
+sys.path.insert(0, "/home/jbkim/Desktop/workspace/Copy-Paste")
 import torch
 import json
 from pathlib import Path
@@ -11,8 +12,7 @@ import numpy as np
 import cv2
 from pycocotools.coco import COCO
 from pycocotools import mask as coco_mask
-from torchvision.datasets import CocoDetection
-from collections import defaultdict
+from torchvision.ops import box_convert
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
 import albumentations as A
@@ -27,6 +27,7 @@ from coco2014 import to_array, to_pil
 class LargeScaleJittering(object):
     def __init__(
         self,
+        format="coco",
         img_size=512,
         pad_color=(127, 127, 127),
         mean=(0.485, 0.456, 0.406),
@@ -52,11 +53,18 @@ class LargeScaleJittering(object):
                 A.HorizontalFlip(p=0.5),
                 A.Normalize(mean=mean, std=std),
                 ToTensorV2(),
-            ]
+            ],
+            bbox_params=A.BboxParams(format=format, label_fields=["bbox_ids", "labels"]),
         )
 
-    def __call__(self, image, masks):
-        return self.transform(image=image, masks=masks)
+    def __call__(self, image, masks, bboxes, labels):
+        return self.transform(
+            image=image,
+            masks=masks,
+            bboxes=bboxes,
+            bbox_ids=range(len(bboxes)),
+            labels=labels,
+        )
 
 
 class COCODS(Dataset):
@@ -82,12 +90,12 @@ class COCODS(Dataset):
         return masks
 
     @staticmethod
+    def get_coco_bboxes(annots):
+        return [annot["bbox"] for annot in annots]
+
+    @staticmethod
     def get_labels(annots):
-        labels = list()
-        for annot in annots:
-            label = annot["category_id"]
-            labels.append(label)
-        return labels
+        return [annot["category_id"] for annot in annots]
 
     def __getitem__(self, idx):
         img_id = self.img_ids[idx]
@@ -100,27 +108,41 @@ class COCODS(Dataset):
         annots = self.coco.loadAnns(ann_ids)
         h, w, _ = img.shape
         masks = self.get_masks(annots=annots, h=h, w=w)
+        coco_bboxes = self.get_coco_bboxes(annots)
+        labels = self.get_labels(annots)
 
         if self.transform is not None:
-            transformed = self.transform(image=img, masks=masks)
+            transformed = self.transform(
+                image=img, masks=masks, bboxes=coco_bboxes, labels=labels,
+            )
             image = transformed["image"]
             masks = transformed["masks"]
-            mask = torch.stack(masks, dim=0)
+            coco_bboxes = transformed["bboxes"]
+            bbox_ids = transformed["bbox_ids"]
+            labels = transformed["labels"]
 
-        labels = self.get_labels(annots)
-        label = torch.tensor(labels)
-        return image, mask, label
+        return (
+            image,
+            torch.stack([masks[bbox_id] for bbox_id in bbox_ids], dim=0),
+            torch.tensor(coco_bboxes),
+            torch.tensor(labels),
+        )
 
     def collate_fn(self, batch):
-        images, masks, labels = list(zip(*batch))
-        return torch.stack(images, dim=0), masks, labels
+        images, masks, coco_bboxes, labels = list(zip(*batch))
+        ltrbs = [
+            box_convert(boxes=coco_bbox, in_fmt="xywh", out_fmt="xyxy")
+            for coco_bbox
+            in coco_bboxes
+        ]
+        return torch.stack(images, dim=0), masks, ltrbs, labels
 
 
 if __name__ == "__main__":
-    annot_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
-    img_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
-    # annot_path = "/home/jbkim/Documents/datasets/annotations_trainval2014/annotations/instances_val2014.json"
-    # img_dir = "/home/jbkim/Documents/datasets/val2014"
+    # annot_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
+    # img_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
+    annot_path = "/home/jbkim/Documents/datasets/annotations_trainval2014/annotations/instances_val2014.json"
+    img_dir = "/home/jbkim/Documents/datasets/val2014"
 
     img_size = 512
     pad_color=(127, 127, 127)
@@ -128,9 +150,11 @@ if __name__ == "__main__":
     ds = COCODS(annot_path=annot_path, img_dir=img_dir, transform=lsj)
     dl = DataLoader(ds, batch_size=4, collate_fn=ds.collate_fn)
     di = iter(dl)
-    image, masks, labels = next(di)
-    [mask.shape for mask in masks]
-    [label.shape for label in labels]
+
+    image, masks, ltrbs, labels = next(di)
+    [mask.size(0) for mask in masks]
+    [ltrb.size(0) for ltrb in ltrbs]
+    [label.size(0) for label in labels]
 
     palette = get_palette(n_classes=80)
-    vis_masks(image=image, masks=masks, palette=palette)
+    vis_masks(image=image, masks=masks, ltrbs=ltrbs, palette=palette, alpha=0.6)

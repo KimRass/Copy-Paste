@@ -1,8 +1,9 @@
 import torch
 from torch.cuda.amp import GradScaler
 from torchvision.utils import make_grid
+from torchvision.ops import box_convert
 import torchvision.transforms.functional as TF
-from torchvision.utils import draw_segmentation_masks
+from torchvision.utils import draw_segmentation_masks, draw_bounding_boxes
 from pathlib import Path
 from PIL import Image
 import cv2
@@ -123,21 +124,35 @@ def to_uint8(image, mean, std):
 def vis_masks(
     image,
     masks,
+    ltrbs,
     palette,
     mean=(0.485, 0.456, 0.406),
     std=(0.229, 0.224, 0.225),
     alpha=0.5,
 ):
-    uint8_image = to_uint8(image, mean=mean, std=std)
+    uint8_image = to_uint8(image.cpu(), mean=mean, std=std)
     images = list()
     for batch_idx in range(image.size(0)):
-        drawn_image = draw_segmentation_masks(
-            image=uint8_image[batch_idx],
-            masks=masks[batch_idx].to(torch.bool),
+        image = uint8_image[batch_idx]
+        mask = masks[batch_idx].to(torch.bool)
+        colors = [tuple(i) for i in palette.tolist()]
+        image = draw_segmentation_masks(
+            image=image,
+            masks=mask,
             alpha=alpha,
-            colors=palette[: masks[batch_idx].size(0)].tolist(),
+            colors=palette.tolist(),
         )
-        images.append(drawn_image.cpu())
+        ltrb = ltrbs[batch_idx]
+        image = draw_bounding_boxes(
+            image=image,
+            boxes=ltrb,
+            # labels=[VOC_CLASSES[idx] for idx in cls_indices],
+            colors=colors,
+            width=2,
+            # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf",
+            # font_size=14,
+        )
+        images.append(image)
     
     grid = make_grid(
         torch.stack(images, dim=0),
