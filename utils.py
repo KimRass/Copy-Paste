@@ -1,7 +1,6 @@
 import torch
 from torch.cuda.amp import GradScaler
 from torchvision.utils import make_grid
-from torchvision.ops import box_convert
 import torchvision.transforms.functional as TF
 from torchvision.utils import draw_segmentation_masks, draw_bounding_boxes
 from pathlib import Path
@@ -10,7 +9,31 @@ import cv2
 import numpy as np
 import random
 import os
-import math
+import numpy as np
+
+
+COLORS = [
+    (230, 25, 75),
+    (60, 180, 75),
+    (255, 255, 25),
+    (0, 130, 200),
+    (245, 130, 48),
+    (145, 30, 180),
+    (70, 240, 250),
+    (240, 50, 230),
+    (210, 255, 60),
+    (250, 190, 212),
+    (0, 128, 128),
+    (220, 190, 255),
+    (170, 110, 40),
+    (255, 250, 200),
+    (128, 0, 0),
+    (170, 255, 195),
+    (128, 128, 0),
+    (255, 215, 180),
+    (0, 0, 128),
+    (128, 128, 128),
+]
 
 
 def denorm(x, mean=(0.457, 0.437, 0.404), std=(0.275, 0.271, 0.284)):
@@ -51,17 +74,6 @@ def get_device():
     return device
 
 
-def get_device():
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        if torch.backends.mps.is_available():
-            device = torch.device("mps")
-        else:
-            device = torch.device("cpu")
-    return device
-
-
 def get_grad_scaler(device):
     return GradScaler() if device.type == "cuda" else None
 
@@ -78,6 +90,10 @@ def to_pil(img):
     if not isinstance(img, Image.Image):
         img = Image.fromarray(img)
     return img
+
+
+def to_array(image):
+    return np.array(image)
 
 
 def save_image(image, save_path):
@@ -119,45 +135,3 @@ def overlay_masks(img, mask, palette, beta=0.8):
 
 def to_uint8(image, mean, std):
     return (denorm(image, mean=mean, std=std) * 255).byte()
-
-
-def vis_masks(
-    image,
-    masks,
-    ltrbs,
-    palette,
-    mean=(0.485, 0.456, 0.406),
-    std=(0.229, 0.224, 0.225),
-    alpha=0.5,
-):
-    uint8_image = to_uint8(image.cpu(), mean=mean, std=std)
-    images = list()
-    for batch_idx in range(image.size(0)):
-        image = uint8_image[batch_idx]
-        mask = masks[batch_idx].to(torch.bool)
-        colors = [tuple(i) for i in palette.tolist()]
-        image = draw_segmentation_masks(
-            image=image,
-            masks=mask,
-            alpha=alpha,
-            colors=palette.tolist(),
-        )
-        ltrb = ltrbs[batch_idx]
-        image = draw_bounding_boxes(
-            image=image,
-            boxes=ltrb,
-            # labels=[VOC_CLASSES[idx] for idx in cls_indices],
-            colors=colors,
-            width=2,
-            # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf",
-            # font_size=14,
-        )
-        images.append(image)
-    
-    grid = make_grid(
-        torch.stack(images, dim=0),
-        nrow=int(image.size(0) ** 0.5),
-        padding=1,
-        pad_value=255,
-    )
-    TF.to_pil_image(grid).show()

@@ -18,10 +18,6 @@ def to_pil(img):
     return img
 
 
-def to_array(image):
-    return np.array(image)
-
-
 def get_color(obj_idx, cls_idx, palette, task):
     if task == "instance":
         return palette[obj_idx]

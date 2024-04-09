@@ -2,26 +2,21 @@
     # https://www.kaggle.com/code/blondinka/how-to-do-augmentations-for-instance-segmentation
 
 import sys
-# sys.path.insert(0, "/Users/jongbeomkim/Desktop/workspace/Copy-Paste/")
-sys.path.insert(0, "/home/jbkim/Desktop/workspace/Copy-Paste")
+sys.path.insert(0, "/Users/jongbeomkim/Desktop/workspace/Copy-Paste/")
+# sys.path.insert(0, "/home/jbkim/Desktop/workspace/Copy-Paste")
 import torch
-import json
 from pathlib import Path
-from PIL import Image
-import numpy as np
 import cv2
 from pycocotools.coco import COCO
 from pycocotools import mask as coco_mask
-from torchvision.ops import box_convert
 from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as T
+from torchvision.utils import make_grid, draw_segmentation_masks, draw_bounding_boxes
+from torchvision.ops import box_convert
+import torchvision.transforms.functional as TF
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from torchvision.utils import make_grid
-import torchvision.transforms.functional as TF
 
-from utils import image_to_grid, get_palette, vis_masks
-from coco2014 import to_array, to_pil
+from utils import COLORS, to_uint8
 
 
 class LargeScaleJittering(object):
@@ -135,26 +130,82 @@ class COCODS(Dataset):
             for coco_bbox
             in coco_bboxes
         ]
-        return torch.stack(images, dim=0), masks, ltrbs, labels
+        annots = {"masks": masks, "ltrbs": ltrbs, "labels": labels}
+        return torch.stack(images, dim=0), annots
+
+    def labels_to_class_names(self, labels):
+        return [[self.coco.cats[j]["name"] for j in i.tolist()] for i in labels]
+
+    def vis_annots(
+        self,
+        image,
+        annots,
+        task="instance",
+        colors=COLORS,
+        mean=(0.485, 0.456, 0.406),
+        std=(0.229, 0.224, 0.225),
+        alpha=0.6,
+    ):
+        uint8_image = to_uint8(image.cpu(), mean=mean, std=std)
+        class_names = self.labels_to_class_names(annots["labels"])
+        images = list()
+        for batch_idx in range(image.size(0)):
+            if task == "instance":
+                picked_colors = [
+                    colors[i % len(colors)] for i in annots["labels"][batch_idx].tolist()
+                ]
+            elif task == "semantic":
+                picked_colors = colors
+
+            new_image = uint8_image[batch_idx]
+            new_image = draw_segmentation_masks(
+                image=new_image,
+                masks=annots["masks"][batch_idx].to(torch.bool),
+                alpha=alpha,
+                colors=picked_colors,
+            )
+            new_image = draw_bounding_boxes(
+                image=new_image,
+                boxes=annots["ltrbs"][batch_idx],
+                labels=class_names[batch_idx],
+                colors=picked_colors,
+                width=2,
+                # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf",
+                font="/Users/jongbeomkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
+                font_size=14,
+            )
+            images.append(new_image)
+
+        grid = make_grid(
+            torch.stack(images, dim=0),
+            nrow=int(image.size(0) ** 0.5),
+            padding=1,
+            pad_value=255,
+        )
+        TF.to_pil_image(grid).show()
 
 
 if __name__ == "__main__":
-    # annot_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
-    # img_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
-    annot_path = "/home/jbkim/Documents/datasets/annotations_trainval2014/annotations/instances_val2014.json"
-    img_dir = "/home/jbkim/Documents/datasets/val2014"
+    annot_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
+    img_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
+    # annot_path = "/home/jbkim/Documents/datasets/annotations_trainval2014/annotations/instances_val2014.json"
+    # img_dir = "/home/jbkim/Documents/datasets/val2014"
 
     img_size = 512
     pad_color=(127, 127, 127)
     lsj = LargeScaleJittering()
     ds = COCODS(annot_path=annot_path, img_dir=img_dir, transform=lsj)
-    dl = DataLoader(ds, batch_size=4, collate_fn=ds.collate_fn)
+    dl = DataLoader(ds, batch_size=4, shuffle=True, collate_fn=ds.collate_fn)
     di = iter(dl)
 
-    image, masks, ltrbs, labels = next(di)
-    [mask.size(0) for mask in masks]
-    [ltrb.size(0) for ltrb in ltrbs]
-    [label.size(0) for label in labels]
+    image, annots = next(di)
+    # [mask.size(0) for mask in masks]
+    # [ltrb.size(0) for ltrb in ltrbs]
+    # [label.size(0) for label in labels]
 
-    palette = get_palette(n_classes=80)
-    vis_masks(image=image, masks=masks, ltrbs=ltrbs, palette=palette, alpha=0.6)
+    ds.vis_annots(
+        image=image,
+        annots=annots,
+        task="semantic",
+        # task="instance",
+    )
