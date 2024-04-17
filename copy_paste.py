@@ -11,7 +11,7 @@ class CopyPaste(object):
     horizontal flipping on each of them. Then we select a random subset of objects
     from one of the images and paste them onto the other image."
     """
-    def __init__(self, keep_prob=0.7, select_prob=0.5, occ_thresh=0.3):
+    def __init__(self, keep_prob=0.7, select_prob=0.5, occ_thresh=0.7):
         self.keep_prob = keep_prob
         self.select_prob = select_prob
         self.occ_thresh = occ_thresh
@@ -19,21 +19,37 @@ class CopyPaste(object):
     def get_select_mask(self, mask2):
         return torch.rand(mask2.size(0)) < self.select_prob
 
+    # def exclude_occluded_objects(self, mask1, mask2):
+    #     """
+    #     "We remove fully occluded objects and update the masks and bounding boxes
+    #     of partially occluded objects."
+    #     """
+    #     area = torch.sum(mask1, dim=(1, 2))
+    #     intersec = torch.sum(
+    #         mask1 * torch.any(mask2, dim=0, keepdim=True), dim=(1, 2),
+    #     )
+    #     ioa = intersec / area
+    #     new_mask1 = mask1[ioa > self.occ_thresh]
+    #     if new_mask1.nelement() == 0:
+    #         return torch.cat([new_mask1, mask2], dim=0)
+    #     else:
+    #         return mask2
     def exclude_occluded_objects(self, mask1, mask2):
         """
         "We remove fully occluded objects and update the masks and bounding boxes
         of partially occluded objects."
         """
-        area = torch.sum(mask1, dim=(1, 2))
-        intersec = torch.sum(
-            mask1 * torch.any(mask2, dim=0, keepdim=True), dim=(1, 2),
-        )
-        ioa = intersec / area
-        new_mask1 = mask1[ioa > self.occ_thresh]
-        if new_mask1.nelement() == 0:
-            return torch.cat([new_mask1, mask2], dim=0)
-        else:
-            return mask2
+        intersec = mask1 * torch.any(mask2, dim=0, keepdim=True)
+        new_mask1 = mask1 - intersec
+        ori_area = torch.sum(mask1, dim=(1, 2))
+        rem_area = torch.sum(new_mask1, dim=(1, 2))
+        print(rem_area / ori_area)
+        return new_mask1, (rem_area / ori_area) > 1 - self.occ_thresh
+        # new_mask1 = new_mask1[(rem_area / ori_area) > 1 - self.occ_thresh]
+        # if new_mask1.nelement() == 0:
+        #     return mask2
+        # else:
+        #     return torch.cat([new_mask1, mask2], dim=0)
 
     @staticmethod
     def get_copy_paste_image(image1, image2, mask2):
@@ -68,11 +84,14 @@ class CopyPaste(object):
             mask2 = mask2[select_mask]
             label2 = labels[idx2][select_mask]
             ltrb2 = ltrbs[idx2][select_mask]
+
+            print(idx1, idx2)
+            mask1, boolean = self.exclude_occluded_objects(mask1=mask1, mask2=mask2)
             return (
                 self.get_copy_paste_image(
                     image1=image1, image2=image2, mask2=mask2,
                 ),
-                self.exclude_occluded_objects(mask1=mask1, mask2=mask2),
+                mask1[boolean],
                 torch.cat([label1, label2], dim=0),
                 torch.cat([ltrb1, ltrb2], dim=0),
             )
@@ -82,7 +101,7 @@ class CopyPaste(object):
         ls1 = list(range(batch_size))
         ls2 = list(range(batch_size))
         random.shuffle(ls2)
-        print(ls2)
+        # print(ls2)
 
         image_tensors = list()
         masks = list()
@@ -122,7 +141,7 @@ if __name__ == "__main__":
     pad_color=(127, 127, 127)
     lsj = LargeScaleJittering()
     ds = COCODS(annot_path=annot_path, img_dir=img_dir, transform=lsj)
-    dl = DataLoader(ds, batch_size=4, shuffle=True, collate_fn=ds.collate_fn)
+    dl = DataLoader(ds, batch_size=2, shuffle=True, collate_fn=ds.collate_fn)
     di = iter(dl)
 
     image, annots = next(di)
@@ -136,10 +155,9 @@ if __name__ == "__main__":
     )
 
 
-    copy_paste = CopyPaste(occ_thresh=0.3, keep_prob=0, select_prob=1)
+    copy_paste = CopyPaste(occ_thresh=0.7, keep_prob=0, select_prob=1)
 
     new_image, new_annots = copy_paste(image, annots)
-    new_annots["masks"][1].nelement() == 0
     ds.vis_annots(
         image=new_image,
         annots=new_annots,
@@ -148,13 +166,47 @@ if __name__ == "__main__":
         alpha=0.6,
     )
 
-    # mask1 = annots["masks"][3][:4, ...]
-    # mask2 = annots["masks"][3][4:, ...]
-    # mask1.shape, mask2.shape
-    # area = torch.sum(mask1, dim=(1, 2))
-    # intersec = torch.sum(mask1 * torch.any(mask2, dim=0, keepdim=True), dim=(1, 2))
-    # ioa = intersec / area
-    # occ_thresh = 0.3
-    # mask1 = mask1[ioa > occ_thresh]
-    
-    # mask2.max()
+def vis_mask(mask):
+    image_to_grid(torch.any(mask, dim=0, keepdim=True).float()[None, ...].repeat(1, 3, 1, 1), 1).show()
+
+
+    from utils import image_to_grid
+    idx1=1
+    idx2=0    
+    occ_thresh = 0.7
+    image1 = image[idx1]
+
+    masks = annots["masks"]
+    mask1 = masks[idx1]
+
+    labels = annots["labels"]
+    label1 = labels[idx1]
+
+    ltrbs = annots["ltrbs"]
+    ltrb1 = ltrbs[idx1]
+
+    image2 = image[idx2]
+    mask2 = masks[idx2]
+    select_mask = copy_paste.get_select_mask(mask2)
+    mask2 = mask2[select_mask]
+    label2 = labels[idx2][select_mask]
+    ltrb2 = ltrbs[idx2][select_mask]
+
+    intersec = mask1 * torch.any(mask2, dim=0, keepdim=True)
+    new_mask1 = mask1 - intersec
+    ori_area = torch.sum(mask1, dim=(1, 2))
+    rem_area = torch.sum(new_mask1, dim=(1, 2))
+    print(rem_area / ori_area)
+    boolean = (rem_area / ori_area) > 1 - occ_thresh
+    new_mask1 = new_mask1[boolean]
+    mask = torch.cat([new_mask1, mask2], dim=0)
+
+    mask1.shape, mask2.shape, new_mask1.shape, mask.shape
+    # vis_mask(mask1)
+    # vis_mask(new_mask1)
+    # vis_mask(mask)
+    # vis_mask(mask2)
+    new_image = copy_paste.get_copy_paste_image(
+        image1=image1, image2=image2, mask2=mask2,
+    )
+    image_to_grid(new_image, 1).show()
