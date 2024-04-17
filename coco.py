@@ -146,6 +146,15 @@ class COCODS(Dataset):
         std=(0.229, 0.224, 0.225),
         alpha=0.6,
     ):
+        if labels:
+            # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf"
+            # font="/Users/jongbeomkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf"
+            font = "/home/jbkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf"
+            font_size = 14
+        else:
+            font = None
+            font_size = None
+
         uint8_image = to_uint8(image.cpu(), mean=mean, std=std)
         class_names = self.labels_to_class_names(annots["labels"])
         images = list()
@@ -154,7 +163,8 @@ class COCODS(Dataset):
                 picked_colors = colors
             elif task == "semantic":
                 picked_colors = [
-                    colors[i % len(colors)] for i in annots["labels"][batch_idx].tolist()
+                    colors[i % len(colors)]
+                    for i in annots["labels"][batch_idx].tolist()
                 ]
 
             new_image = uint8_image[batch_idx]
@@ -164,17 +174,15 @@ class COCODS(Dataset):
                 alpha=alpha,
                 colors=picked_colors,
             )
-            if labels:
+            if "ltrbs" in annots:
                 new_image = draw_bounding_boxes(
                     image=new_image,
                     boxes=annots["ltrbs"][batch_idx],
                     labels=class_names[batch_idx],
                     colors=picked_colors,
                     width=2,
-                    # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf",
-                    # font="/Users/jongbeomkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
-                    font="/home/jbkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
-                    font_size=14,
+                    font=font,
+                    font_size=font_size,
                 )
             images.append(new_image)
 
