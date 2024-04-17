@@ -73,7 +73,8 @@ class COCODS(Dataset):
         return len(self.img_ids)
 
     @staticmethod
-    def get_masks(annots, h, w):
+    def get_masks(annots, img):
+        h, w, _ = img.shape
         masks = list()
         for annot in annots:
             rles = coco_mask.frPyObjects(annot["segmentation"], h, w)
@@ -101,8 +102,7 @@ class COCODS(Dataset):
 
         ann_ids = self.coco.getAnnIds(imgIds=img_id)
         annots = self.coco.loadAnns(ann_ids)
-        h, w, _ = img.shape
-        masks = self.get_masks(annots=annots, h=h, w=w)
+        masks = self.get_masks(annots=annots, img=img)
         coco_bboxes = self.get_coco_bboxes(annots)
         labels = self.get_labels(annots)
 
@@ -115,7 +115,6 @@ class COCODS(Dataset):
             coco_bboxes = transformed["bboxes"]
             bbox_ids = transformed["bbox_ids"]
             labels = transformed["labels"]
-
         return (
             image,
             torch.stack([masks[bbox_id] for bbox_id in bbox_ids], dim=0),
@@ -140,6 +139,7 @@ class COCODS(Dataset):
         self,
         image,
         annots,
+        labels=False,
         task="instance",
         colors=COLORS,
         mean=(0.485, 0.456, 0.406),
@@ -164,17 +164,18 @@ class COCODS(Dataset):
                 alpha=alpha,
                 colors=picked_colors,
             )
-            new_image = draw_bounding_boxes(
-                image=new_image,
-                boxes=annots["ltrbs"][batch_idx],
-                labels=class_names[batch_idx],
-                colors=picked_colors,
-                width=2,
-                # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf",
-                # font="/Users/jongbeomkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
-                font="/home/jbkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
-                font_size=14,
-            )
+            if labels:
+                new_image = draw_bounding_boxes(
+                    image=new_image,
+                    boxes=annots["ltrbs"][batch_idx],
+                    labels=class_names[batch_idx],
+                    colors=picked_colors,
+                    width=2,
+                    # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf",
+                    # font="/Users/jongbeomkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
+                    font="/home/jbkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
+                    font_size=14,
+                )
             images.append(new_image)
 
         grid = make_grid(
