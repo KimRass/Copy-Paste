@@ -1,6 +1,3 @@
-import sys
-sys.path.insert(0, "/Users/jongbeomkim/Desktop/workspace/Copy-Paste/")
-# sys.path.insert(0, "/home/jbkim/Desktop/workspace/Copy-Paste")
 import torch
 import random
 
@@ -43,7 +40,9 @@ class CopyPaste(object):
                 nonzero = torch.nonzero(mask[batch_idx])
                 x = nonzero[:, 0]
                 y = nonzero[:, 1]
-                ltrbs.append(torch.tensor([x[0], y[0], x[-1], y[-1]]).double())
+                ltrbs.append(
+                    torch.tensor([x.min(), y.min(), x.max(), y.max()]).double()
+                )
             return torch.stack(ltrbs, dim=0)
 
     def apply(self, image, annots, idx1, idx2):
@@ -82,7 +81,7 @@ class CopyPaste(object):
         ltrb = torch.cat([new_ltrb1, ltrb2], dim=0)
         label = torch.cat([label1[occ_mask], label2], dim=0)
 
-        new_image = copy_paste.merge_two_images_using_mask(
+        new_image = self.merge_two_images_using_mask(
             image1=image1, image2=image2, mask=mask2,
         )
         return (new_image, mask, label, ltrb)
@@ -118,52 +117,3 @@ class CopyPaste(object):
                 "ltrbs": ltrbs,
             },
         )
-
-
-def vis_mask(mask):
-    image_to_grid(torch.any(mask, dim=0, keepdim=True).float()[None, ...].repeat(1, 3, 1, 1), 1).show()
-
-
-if __name__ == "__main__":
-    from coco import LargeScaleJittering, COCODS
-    from torch.utils.data import DataLoader
-    from utils import image_to_grid
-
-    annot_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
-    img_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
-    # annot_path = "/home/jbkim/Documents/datasets/annotations_trainval2014/annotations/instances_val2014.json"
-    # img_dir = "/home/jbkim/Documents/datasets/val2014"
-
-    img_size = 512
-    pad_color=(127, 127, 127)
-    lsj = LargeScaleJittering()
-    ds = COCODS(annot_path=annot_path, img_dir=img_dir, transform=lsj)
-    dl = DataLoader(ds, batch_size=4, shuffle=True, collate_fn=ds.collate_fn)
-    di = iter(dl)
-
-    copy_paste = CopyPaste(occ_thresh=0.7, keep_prob=0, select_prob=1)
-
-    image, annots = next(di)
-    ds.vis_annots(
-        image=image,
-        annots=annots,
-        labels=False,
-        task="instance",
-        alpha=0,
-    )
-
-    new_image, new_annots = copy_paste(image, annots)
-    ds.vis_annots(
-        image=new_image,
-        annots=new_annots,
-        labels=False,
-        task="instance",
-        alpha=0,
-    )
-    ds.vis_annots(
-        image=new_image,
-        annots=new_annots,
-        labels=False,
-        task="instance",
-        alpha=0.7,
-    )

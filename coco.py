@@ -105,6 +105,7 @@ class COCODS(Dataset):
         masks = self.get_masks(annots=annots, img=img)
         coco_bboxes = self.get_coco_bboxes(annots)
         labels = self.get_labels(annots)
+        print(idx, len(coco_bboxes))
 
         if self.transform is not None:
             transformed = self.transform(
@@ -113,6 +114,7 @@ class COCODS(Dataset):
             image = transformed["image"]
             masks = transformed["masks"]
             coco_bboxes = transformed["bboxes"]
+            print(len(coco_bboxes))
             bbox_ids = transformed["bbox_ids"]
             labels = transformed["labels"]
         return (
@@ -155,6 +157,14 @@ class COCODS(Dataset):
             font = None
             font_size = None
 
+        if alpha == 0:
+            font = None
+            font_size = None
+            width = 0
+        else:
+            width = 2
+        print(alpha, font, font_size, width)
+
         uint8_image = to_uint8(image.cpu(), mean=mean, std=std)
         class_names = self.labels_to_class_names(annots["labels"])
         images = list()
@@ -180,7 +190,7 @@ class COCODS(Dataset):
                     boxes=annots["ltrbs"][batch_idx],
                     labels=class_names[batch_idx],
                     colors=picked_colors,
-                    width=2,
+                    width=width,
                     font=font,
                     font_size=font_size,
                 )
