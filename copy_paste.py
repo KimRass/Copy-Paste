@@ -26,8 +26,9 @@ class CopyPaste(object):
         "To smooth out the edges of the pasted objects we apply a Gaussian filter
         to \alpha similar to “blending” in [13]. Simply composing without any blending has similar performance."
         """
-        cat_mask = torch.any(mask, dim=0, keepdim=True).repeat(3, 1, 1)
-        return cat_mask * image2 + (1 - cat_mask) * image1
+        cat_mask = torch.any(mask.bool(), dim=0, keepdim=True).repeat(3, 1, 1)
+        # print(cat_mask.dtype)
+        return cat_mask * image2 + (~cat_mask) * image1
 
     @staticmethod
     def get_ltrb_from_mask(mask):
@@ -38,8 +39,10 @@ class CopyPaste(object):
             ltrbs = list()
             for batch_idx in range(mask.size(0)):
                 nonzero = torch.nonzero(mask[batch_idx])
-                x = nonzero[:, 0]
-                y = nonzero[:, 1]
+                # x = nonzero[:, 0]
+                # y = nonzero[:, 1]
+                y = nonzero[:, 0]
+                x = nonzero[:, 1]
                 ltrbs.append(
                     torch.tensor([x.min(), y.min(), x.max(), y.max()]).double()
                 )

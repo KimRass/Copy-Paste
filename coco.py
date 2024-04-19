@@ -14,7 +14,7 @@ from albumentations.pytorch import ToTensorV2
 from pathlib import Path
 import numpy as np
 
-from utils import COLORS, to_uint8
+from utils import COLORS, to_uint8, move_to_device
 
 
 class LargeScaleJittering(object):
@@ -65,7 +65,8 @@ class LargeScaleJittering(object):
 class COCODS(Dataset):
     def __init__(self, annot_path, img_dir, transform=None):
         self.coco = COCO(annot_path)
-        self.img_ids = list(sorted(self.coco.imgs.keys()))
+        self.img_ids = self.coco.getImgIds()
+        # self.img_ids = list(sorted(self.coco.imgs.keys()))
         self.transform = transform
         self.img_dir = Path(img_dir)
 
@@ -105,7 +106,7 @@ class COCODS(Dataset):
         masks = self.get_masks(annots=annots, img=img)
         coco_bboxes = self.get_coco_bboxes(annots)
         labels = self.get_labels(annots)
-        print(idx, len(coco_bboxes))
+        # print(idx, img_id, len(coco_bboxes))
 
         if self.transform is not None:
             transformed = self.transform(
@@ -114,23 +115,38 @@ class COCODS(Dataset):
             image = transformed["image"]
             masks = transformed["masks"]
             coco_bboxes = transformed["bboxes"]
-            print(len(coco_bboxes))
+            # print(len(coco_bboxes))
+            # print(coco_bboxes)
             bbox_ids = transformed["bbox_ids"]
             labels = transformed["labels"]
+        if bbox_ids:
+            mask = torch.stack([masks[bbox_id] for bbox_id in bbox_ids], dim=0)
+        else:
+            mask = torch.empty(size=(0, 512, 512), dtype=torch.double)
+        if coco_bboxes:
+            ltrb = torch.tensor(coco_bboxes)
+        else:
+            ltrb = torch.empty(size=(0, 4), dtype=torch.float)
         return (
             image,
-            torch.stack([masks[bbox_id] for bbox_id in bbox_ids], dim=0),
-            torch.tensor(coco_bboxes),
+            mask,
+            ltrb,
             torch.tensor(labels),
         )
 
     def collate_fn(self, batch):
         images, masks, coco_bboxes, labels = list(zip(*batch))
-        ltrbs = [
-            box_convert(boxes=coco_bbox, in_fmt="xywh", out_fmt="xyxy")
-            for coco_bbox
-            in coco_bboxes
-        ]
+        # print([coco_bbox.shape for coco_bbox in coco_bboxes])
+        if coco_bboxes:
+            ltrbs = [
+                box_convert(boxes=coco_bbox, in_fmt="xywh", out_fmt="xyxy")
+                for coco_bbox
+                in coco_bboxes
+            ]
+        else:
+            ltrbs = list()
+        # print(len(coco_bboxes), ltrbs.shape)
+            
         annots = {"masks": masks, "ltrbs": ltrbs, "labels": labels}
         return torch.stack(images, dim=0), annots
 
@@ -141,31 +157,20 @@ class COCODS(Dataset):
         self,
         image,
         annots,
-        labels=False,
         task="instance",
-        colors=COLORS,
+        colors=COLORS * 3,
         mean=(0.485, 0.456, 0.406),
         std=(0.229, 0.224, 0.225),
-        alpha=0.6,
+        alpha=0.5,
+        # font_path="/home/jbkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
+        font_path=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf",
+        font_size=14,
     ):
-        if labels:
-            # font=Path(__file__).resolve().parent/"resources/NotoSans_Condensed-Medium.ttf"
-            # font="/Users/jongbeomkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf"
-            font = "/home/jbkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf"
-            font_size = 14
-        else:
-            font = None
-            font_size = None
+        device = torch.device("cpu")
+        image = move_to_device(image, device=device)
+        annots = move_to_device(annots, device=device)
 
-        if alpha == 0:
-            font = None
-            font_size = None
-            width = 0
-        else:
-            width = 2
-        print(alpha, font, font_size, width)
-
-        uint8_image = to_uint8(image.cpu(), mean=mean, std=std)
+        uint8_image = to_uint8(image, mean=mean, std=std)
         class_names = self.labels_to_class_names(annots["labels"])
         images = list()
         for batch_idx in range(image.size(0)):
@@ -178,22 +183,26 @@ class COCODS(Dataset):
                 ]
 
             new_image = uint8_image[batch_idx]
-            new_image = draw_segmentation_masks(
-                image=new_image,
-                masks=annots["masks"][batch_idx].to(torch.bool),
-                alpha=alpha,
-                colors=picked_colors,
-            )
-            if "ltrbs" in annots:
-                new_image = draw_bounding_boxes(
+            mask = annots["masks"][batch_idx].to(torch.bool)
+            if mask.size(0) != 0:
+                new_image = draw_segmentation_masks(
                     image=new_image,
-                    boxes=annots["ltrbs"][batch_idx],
-                    labels=class_names[batch_idx],
+                    masks=mask,
+                    alpha=alpha,
                     colors=picked_colors,
-                    width=width,
-                    font=font,
-                    font_size=font_size,
                 )
+            if "ltrbs" in annots:
+                ltrb = annots["ltrbs"][batch_idx]
+                if ltrb.size(0) != 0:
+                    new_image = draw_bounding_boxes(
+                        image=new_image,
+                        boxes=ltrb,
+                        labels=None if alpha == 0 else class_names[batch_idx],
+                        colors=picked_colors,
+                        width=0 if alpha == 0 else 2,
+                        font=font_path,
+                        font_size=font_size,
+                    )
             images.append(new_image)
 
         grid = make_grid(
@@ -202,4 +211,4 @@ class COCODS(Dataset):
             padding=1,
             pad_value=255,
         )
-        TF.to_pil_image(grid).show()
+        return TF.to_pil_image(grid)
