@@ -42,7 +42,6 @@ class COCODS(Dataset):
             if len(mask.shape) < 3:
                 mask = mask[..., None]
             mask = mask.any(axis=2)
-            # mask = torch.from_numpy(mask, dtype=torch.bool)
             mask = mask.astype(np.uint8)
             masks.append(mask)
         return masks
@@ -68,7 +67,9 @@ class COCODS(Dataset):
         coco_bboxes = self.get_coco_bboxes(annots)
         labels = self.get_labels(annots)
 
-        if self.transform is not None:
+        if self.transform is None:
+            return img, masks, coco_bboxes, labels
+        else:
             if masks and coco_bboxes and labels:
                 transformed = self.transform(
                     image=img, masks=masks, bboxes=coco_bboxes, labels=labels,
@@ -82,19 +83,21 @@ class COCODS(Dataset):
                 bbox_ids = []
             image = transformed["image"]
 
-        if bbox_ids:
-            mask = torch.stack([masks[bbox_id] for bbox_id in bbox_ids], dim=0)
-            mask = mask.bool()
-        else:
-            mask = torch.empty(
-                size=(0, self.img_size, self.img_size), dtype=torch.bool,
-            )
-        if coco_bboxes:
-            ltrb = torch.tensor(coco_bboxes, dtype=torch.float)
-        else:
-            ltrb = torch.empty(size=(0, 4), dtype=torch.float)
-        label = torch.tensor(labels, dtype=torch.long)
-        return image, mask, ltrb, label
+            if bbox_ids:
+                mask = torch.stack(
+                    [masks[bbox_id] for bbox_id in bbox_ids], dim=0,
+                ).bool()
+            else:
+                mask = torch.empty(
+                    size=(0, self.img_size, self.img_size), dtype=torch.bool,
+                )
+
+            if coco_bboxes:
+                ltrb = torch.tensor(coco_bboxes, dtype=torch.float)
+            else:
+                ltrb = torch.empty(size=(0, 4), dtype=torch.float)
+            label = torch.tensor(labels, dtype=torch.long)
+            return image, mask, ltrb, label
 
     @staticmethod
     def collate_fn(batch):
