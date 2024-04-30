@@ -2,7 +2,8 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 import argparse
 
-from coco import LargeScaleJittering, COCODS
+from coco import COCODS
+from lsj import LargeScaleJittering
 from copy_paste import CopyPaste
 
 
