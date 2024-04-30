@@ -15,10 +15,8 @@ from torchvision.utils import (
 from torchvision.ops import box_convert
 import torchvision.transforms.functional as TF
 from pathlib import Path
-import numpy as np
 
 from utils import COLORS, to_uint8, move_to_device
-from lsj import LargeScaleJittering
 
 
 class COCODS(Dataset):
@@ -93,24 +91,16 @@ class COCODS(Dataset):
                 )
 
             if coco_bboxes:
-                ltrb = torch.tensor(coco_bboxes, dtype=torch.float)
+                coco_bbox = torch.tensor(coco_bboxes, dtype=torch.float)
             else:
-                ltrb = torch.empty(size=(0, 4), dtype=torch.float)
+                coco_bbox = torch.empty(size=(0, 4), dtype=torch.float)
+            ltrb = box_convert(coco_bbox, in_fmt="xywh", out_fmt="xyxy")
             label = torch.tensor(labels, dtype=torch.long)
             return image, mask, ltrb, label
 
     @staticmethod
     def collate_fn(batch):
-        images, masks, coco_bboxes, labels = list(zip(*batch))
-        if coco_bboxes:
-            ltrbs = [
-                box_convert(boxes=coco_bbox, in_fmt="xywh", out_fmt="xyxy")
-                for coco_bbox
-                in coco_bboxes
-            ]
-        else:
-            ltrbs = []
-            
+        images, masks, ltrbs, labels = list(zip(*batch))
         annots = {"masks": masks, "ltrbs": ltrbs, "labels": labels}
         return torch.stack(images, dim=0), annots
 
@@ -126,10 +116,9 @@ class COCODS(Dataset):
         mean=(0.485, 0.456, 0.406),
         std=(0.229, 0.224, 0.225),
         alpha=0.5,
-        font_path="/Users/jongbeomkim/Desktop/workspace/Copy-Paste/resources/NotoSans_Condensed-Medium.ttf",
-        # font_path=(
-        #     Path(__file__).resolve().parent
-        # )/"resources/NotoSans_Condensed-Medium.ttf",
+        font_path=(
+            Path(__file__).resolve().parent
+        )/"resources/NotoSans_Condensed-Medium.ttf",
         font_size=14,
     ):
         device = torch.device("cpu")
@@ -166,7 +155,7 @@ class COCODS(Dataset):
                         labels=None if alpha == 0 else class_names[batch_idx],
                         colors=picked_colors,
                         width=0 if alpha == 0 else 2,
-                        font=font_path,
+                        font=str(font_path),
                         font_size=font_size,
                     )
             images.append(new_image)
@@ -178,11 +167,3 @@ class COCODS(Dataset):
             pad_value=255,
         )
         return TF.to_pil_image(grid)
-
-
-if __name__ == "__main__":
-    lsj = LargeScaleJittering()
-    annot_path = "/Users/jongbeomkim/Documents/datasets/coco2014/annotations/instances_val2014.json"
-    img_dir = "/Users/jongbeomkim/Documents/datasets/coco2014/val2014"
-    ds = COCODS(annot_path=annot_path, img_dir=img_dir, transform=lsj)
-    ds[0]
