@@ -33,7 +33,7 @@ import numpy as np
 from lsj import LargeScaleJittering
 
 
-class CocoNutDS(Dataset):
+class COCONutDS(Dataset):
     def __init__(
         self, annot_path, img_dir, mask_dir, img_size=512, transform=None,
     ):
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     annot_path = "/home/jbkim/Documents/datasets/coconut/coconut_dataset/annotations/annotations/coconut_s.json"
     img_dir = "/home/jbkim/Documents/datasets/coconut/train2017 (1)/train2017"
     mask_dir = "/home/jbkim/Documents/datasets/coconut/coconut_dataset/coconut_s/coconut_s/"
-    coconut_ds = CocoNutDS(
+    coconut_ds = COCONutDS(
         annot_path=annot_path, img_dir=img_dir, mask_dir=mask_dir,
     )
     for idx in range(1000):
