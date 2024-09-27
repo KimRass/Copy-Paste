@@ -1,4 +1,4 @@
-# 'Simple Copy-Paste is a Strong Data Augmentation Methodfor Instance Segmentation'
+# 'Simple Copy-Paste is a Strong Data Augmentation Method for Instance Segmentation'
 
 # 1. Samples
 | Original | Large Scale Jittering<br> and Copy-Paste applied |
